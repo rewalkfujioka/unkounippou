@@ -40,7 +40,7 @@
     min-height:100vh;
     background:var(--bg);
   }
- 
+
   /* ---------- Header ---------- */
   .head{
     background:var(--deep);
@@ -76,7 +76,7 @@
     gap:4px;
   }
   .driver-field label{ font-size:11px; color:#F0C9D3; white-space:nowrap; }
-  .driver-field input{
+  .driver-field input, .driver-field select{
     background:rgba(255,255,255,0.08);
     border:1px solid rgba(255,255,255,0.18);
     border-radius:10px;
@@ -86,15 +86,16 @@
     padding:8px 10px;
     width:100%;
   }
+  .driver-field select option{ color:#3A2A2E; background:#FFFFFF; }
   .driver-field input::placeholder{ color:#E8AEB9; }
- 
+
   .section-label{
     padding:18px 18px 0;
     font-size:12.5px;
     font-weight:700;
     color:var(--deep-ink);
   }
- 
+
   /* ---------- Cards (trips & vehicles share this look) ---------- */
   .trips{ padding:10px 18px 18px; display:flex; flex-direction:column; gap:14px; }
   .trip{
@@ -158,7 +159,7 @@
     cursor:pointer;
   }
   .time-cell button.done{ background:var(--line); color:var(--ink-soft); }
- 
+
   .field-row{ display:flex; gap:8px; margin-bottom:8px; }
   .field{ flex:1; display:flex; flex-direction:column; gap:4px; }
   .field label{ font-size:11px; color:var(--ink-soft); }
@@ -173,7 +174,7 @@
     width:100%;
   }
   .field textarea{ resize:none; height:38px; }
- 
+
   .pax-row{ display:flex; gap:10px; align-items:flex-end; margin-bottom:10px; }
   .pax-field{ display:flex; flex-direction:column; gap:4px; }
   .pax-field label{ font-size:11px; color:var(--ink-soft); }
@@ -189,7 +190,7 @@
     width:30px; text-align:center; font-family:'Space Mono',monospace;
     font-size:15px; font-weight:700;
   }
- 
+
   .fare-box{
     border:1px solid var(--line);
     border-radius:12px;
@@ -223,7 +224,7 @@
     padding:5px 6px; font-family:'Space Mono',monospace; font-size:13px;
     background:#FFFFFF; color:var(--ink);
   }
- 
+
   .mini-fields{ display:flex; gap:8px; margin-top:8px; }
   .mini-field{ flex:1; display:flex; flex-direction:column; gap:4px; }
   .mini-field label{ font-size:11px; color:var(--ink-soft); }
@@ -238,7 +239,7 @@
     background:#F7E3E8; color:var(--deep-ink); font-size:14px;
   }
   .meter-warn{ font-size:11px; color:var(--brick); margin-top:6px; }
- 
+
   .vehicle-total-bar{
     margin:0 18px 4px;
     background:var(--deep-ink);
@@ -249,7 +250,7 @@
   .vehicle-total-bar .label{ font-size:12px; color:#F0C9D3; }
   .vehicle-total-bar .value{ font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:#FCEEF1; }
   .vehicle-total-bar .value span{ font-size:13px; color:#F0C9D3; margin-left:4px; }
- 
+
   /* ---------- Collapsed trip summary ---------- */
   .trip-summary{
     display:flex; align-items:center; gap:10px;
@@ -276,7 +277,7 @@
     border:none; background:transparent; color:var(--ink-soft);
     font-size:12px; padding:4px 6px; cursor:pointer; flex-shrink:0;
   }
- 
+
   .add-trip{
     display:flex; align-items:center; justify-content:center;
     gap:8px;
@@ -290,7 +291,7 @@
     font-family:inherit; font-weight:700; font-size:14.5px;
     cursor:pointer;
   }
- 
+
   /* ---------- Summary bar ---------- */
   .summary{
     position:fixed; left:0; right:0; bottom:0;
@@ -326,7 +327,7 @@
   .save-status.dirty{ background:#FFFFFF; color:#8E2F45; }
   .save-status.saving{ background:#FFFFFF; color:var(--deep-ink); }
   .save-status.saved{ background:var(--deep-ink); color:#FCEEF1; }
- 
+
   .toast{
     position:fixed; left:50%; bottom:112px; transform:translateX(-50%);
     background:var(--deep-ink); color:#FCEEF1;
@@ -335,7 +336,7 @@
     max-width:90%; text-align:center; z-index:50;
   }
   .toast.show{ opacity:1; }
- 
+
   /* ---------- ロック画面 ---------- */
   .lock-screen{
     min-height:100vh; display:flex; align-items:center; justify-content:center;
@@ -364,7 +365,7 @@
 <body>
 <div class="app" id="app"></div>
 <div class="toast" id="toast"></div>
- 
+
 <script>
 function todayStr(){
   const d = new Date();
@@ -407,6 +408,14 @@ function newTrip(){
     fare:'', fareManual:false, assistanceCount:0, discountRate:'', ticketCount:'',
     wheelchair:'', equipmentQty: emptyEquipmentQty(), nurse:'', nightRate:'', highwayFee:'', receiptName:'', note:'' };
 }
+/* 職員リスト（ここに名前を足すと、プルダウンに出て、その人専用のスプレッドシートが作られます） */
+const STAFF_OPTIONS = ['今井正義', '新井優弘', '茂木柾', '小林美穂子','原昂也'];
+function normDriver(n){ return String(n || '').replace(/[\s\u3000]/g, ''); }
+function isStaffName(n){ return STAFF_OPTIONS.includes(normDriver(n)); }
+let driverCustomMode = false; // 「その他（自由入力）」を選んでいる間だけtrue
+let loadedDate = '';          // いま読み込んでいる記録の日付
+let loadedDriver = '';        // いま読み込んでいる記録の運転者名
+
 const VEHICLE_NAME_OPTIONS = [
   'NBOX（群馬580り226）',
   '白シエンタ（前橋800あ562）',
@@ -427,15 +436,15 @@ function blankState(dateStr){
     activeTripId: t.id
   };
 }
- 
+
 let state = blankState(todayStr());
- 
+
 function fmtKm(v){
   if(v===null || v===undefined || isNaN(v)) return '--';
   return v.toFixed(1);
 }
 const TICKET_VALUE = 500;
- 
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -443,7 +452,7 @@ function showToast(msg){
   clearTimeout(t._timer);
   t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
 }
- 
+
 /* ---------- error fallback（真っ白のまま止まらないようにする） ---------- */
 function showFatalError(msg){
   const app = document.getElementById('app');
@@ -457,14 +466,14 @@ function showFatalError(msg){
 }
 window.addEventListener('error', e=> showFatalError(e.message));
 window.addEventListener('unhandledrejection', e=> showFatalError(e.reason));
- 
+
 /* ---------- persistence（Googleスプレッドシート連携） ---------- */
 const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxeriR7x-Yc4jVXfMp7wirM_kVjEPS811T6ck1bQwDw_vBuw6GEDJeNqpA1l5uGxJ6adQ/exec';
 let saveTimer = null;
 let saving = false;       // 保存リクエストが実行中か
 let pendingSave = false;  // 実行中に追加の変更があったか
 let dirty = false;        // 未保存の変更があるか
- 
+
 async function fetchWithTimeout(url, options, timeoutMs){
   const controller = new AbortController();
   const timer = setTimeout(()=> controller.abort(), timeoutMs || 15000);
@@ -474,18 +483,19 @@ async function fetchWithTimeout(url, options, timeoutMs){
     clearTimeout(timer);
   }
 }
- 
+
 function hasCurrentVehicleData(){
   const v = state.vehicle;
   return !!(v.name || v.odoStart !== '' || v.odoEnd !== '' || v.outTime || v.inTime);
 }
- 
+
 function buildPayload(){
   const tot = totals();
   const vehicleRows = state.vehicleLog.concat(hasCurrentVehicleData() ? [state.vehicle] : []);
   return {
     date: state.date,
     driverName: state.driverName || '',
+    useStaffFile: isStaffName(state.driverName), // 職員リストにある人は、その人専用のファイルへ保存する
     equipmentLabels: EQUIPMENT_ITEMS.map(it=>`${it.label}(${it.unit})`),
     vehicles: vehicleRows.map(v=>{
       const d = calcVehicleDist(v);
@@ -522,7 +532,7 @@ function buildPayload(){
     raw: state // 復元用（この形のまま読み戻します）
   };
 }
- 
+
 async function sendSave(){
   const res = await fetchWithTimeout(SHEET_API_URL, {
     method: 'POST',
@@ -532,7 +542,7 @@ async function sendSave(){
   const data = await res.json();
   return !!(data && data.ok);
 }
- 
+
 function normalizeLoadedState(raw, dateStr){
   const s = raw || {};
   const trips = (s.trips && s.trips.length>0) ? s.trips : [newTrip()];
@@ -550,9 +560,10 @@ function normalizeLoadedState(raw, dateStr){
     activeTripId: null // 読み込み直後はすべてたたんだ状態
   };
 }
- 
+
 async function loadDate(dateStr, driverName){
   const dn = driverName !== undefined ? driverName : state.driverName;
+  driverCustomMode = false;
   showToast('読み込み中…');
   try{
     const res = await fetchWithTimeout(
@@ -560,6 +571,7 @@ async function loadDate(dateStr, driverName){
     const data = await res.json();
     if(data && data.ok && data.exists && data.raw){
       state = normalizeLoadedState(data.raw, dateStr);
+      if(!state.driverName) state.driverName = dn || '';
     } else {
       state = blankState(dateStr);
       state.driverName = dn || '';
@@ -570,29 +582,50 @@ async function loadDate(dateStr, driverName){
     showToast(e.name === 'AbortError' ? '通信がタイムアウトしました' : 'スプレッドシートに接続できませんでした');
   }
   dirty = false;
+  loadedDate = state.date;
+  loadedDriver = state.driverName;
   render();
 }
- 
+
 /* 日付・運転者名は「誰のどの日の記録か」を決めるキーなので、
    未保存の内容がある状態で切り替える時は確認してから読み込み直す */
 function switchRecord(dateStr, driverName){
-  if(dateStr === state.date && driverName === state.driverName) return;
+  if(dateStr === loadedDate && normDriver(driverName) === normDriver(loadedDriver)){
+    render(); // 変更なし：表示だけ元に戻す
+    return;
+  }
   if(dirty){
-    const ok = confirm('保存されていない入力内容があります。破棄して切り替えますか？');
+    const hint = loadedDriver ? '' : '\n（運転者名を選んでから入力すると、自動で保存されます）';
+    const ok = confirm('保存されていない入力内容があります。破棄して切り替えますか？' + hint);
     if(!ok){ render(); return; } // 表示を元の値に戻す
   }
   loadDate(dateStr, driverName);
 }
- 
+
+function onDriverSelect(value){
+  if(value === '__other__'){
+    driverCustomMode = true;
+    render(); // 自由入力欄を表示（名前を入力して確定するまで記録は切り替えない）
+    return;
+  }
+  driverCustomMode = false;
+  switchRecord(loadedDate || state.date, value);
+}
+
 function scheduleSave(){
   dirty = true;
   updateSaveStatus();
   clearTimeout(saveTimer);
+  if(!state.driverName) return; // 運転者名が未選択の間は自動保存しない
   saveTimer = setTimeout(()=> runSave(false), 2500);
 }
- 
+
 /* 保存は常に1件ずつ順番に実行する（同時に走らせると競合して失敗するため） */
 async function runSave(isManual){
+  if(!state.driverName){
+    if(isManual) showToast('先に運転者名を選んでください');
+    return;
+  }
   if(saving){ pendingSave = true; return; }
   saving = true;
   updateSaveStatus();
@@ -615,7 +648,7 @@ async function runSave(isManual){
     runSave(false);
   }
 }
- 
+
 async function sendSaveWithRetry(attempts){
   const waits = [0, 1500, 4000];
   for(let i = 0; i < attempts; i++){
@@ -626,39 +659,40 @@ async function sendSaveWithRetry(attempts){
   }
   return false;
 }
- 
+
 function updateSaveStatus(){
   const el = document.getElementById('save-status');
   if(!el) return;
   if(saving){ el.textContent = '保存中…'; el.className = 'save-status saving'; }
+  else if(dirty && !state.driverName){ el.textContent = '運転者名を選択'; el.className = 'save-status dirty'; }
   else if(dirty){ el.textContent = '未保存'; el.className = 'save-status dirty'; }
   else { el.textContent = '保存済み'; el.className = 'save-status saved'; }
 }
- 
+
 function manualSave(){
   runSave(true);
 }
- 
+
 // 電波が戻ったら自動でもう一度保存を試みる
 window.addEventListener('online', ()=>{ if(dirty) runSave(false); });
 // 未保存のまま閉じようとしたら警告する
 window.addEventListener('beforeunload', (e)=>{
   if(dirty){ e.preventDefault(); e.returnValue = ''; }
 });
- 
+
 /* ---------- CSV書き出し ---------- */
 function csvField(v){
   const s = (v===null || v===undefined) ? '' : String(v);
   return '"' + s.replace(/"/g,'""') + '"';
 }
 function csvRow(arr){ return arr.map(csvField).join(',') + '\r\n'; }
- 
+
 function fmtDateJp(dateStr){
   const [y,m,d] = dateStr.split('-').map(Number);
   const wd = ['日','月','火','水','木','金','土'][new Date(y, m-1, d).getDay()];
   return `${y}年${m}月${d}日（${wd}）`;
 }
- 
+
 /* ---------- 既存の雛形（紙の運転日報）に合わせた出力 ---------- */
 function buildTemplateSection(){
   let out = '';
@@ -674,7 +708,7 @@ function buildTemplateSection(){
   out += '\r\n';
   out += csvRow(['','','','','','合計人数', tot.total, '合計額', tot.revenueSum]);
   out += '\r\n';
- 
+
   const vehicleRows = state.vehicleLog.concat(
     (state.vehicle.name || state.vehicle.odoStart !== '' || state.vehicle.odoEnd !== '') ? [state.vehicle] : []
   );
@@ -689,7 +723,7 @@ function buildTemplateSection(){
   out += csvRow(['合計', tot.revenueSum + tot.ticketSum]);
   return out;
 }
- 
+
 /* ---------- 社内管理用の詳細内訳（内訳がすべて分かる版） ---------- */
 function buildDetailSection(){
   let out = '';
@@ -734,7 +768,7 @@ function buildDetailSection(){
   out += csvRow(['現金回収合計（高速代込み）', tot.cashSum]);
   return out;
 }
- 
+
 function buildCSV(){
   let out = '';
   out += buildTemplateSection();
@@ -744,7 +778,7 @@ function buildCSV(){
   out += buildDetailSection();
   return out;
 }
- 
+
 function downloadCSV(){
   const csv = buildCSV();
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // 先頭のBOMはExcelで文字化けしないようにするため
@@ -758,8 +792,8 @@ function downloadCSV(){
   URL.revokeObjectURL(url);
   showToast('CSVを書き出しました');
 }
- 
- 
+
+
 /* ---------- trip actions ---------- */
 function addTrip(){
   const nt = newTrip();
@@ -833,7 +867,7 @@ function updateHead(key, value){
   state[key] = value;
   scheduleSave();
 }
- 
+
 /* ---------- vehicle actions ---------- */
 function updateVehicleField(key, value){
   state.vehicle[key] = value;
@@ -877,7 +911,7 @@ function removeVehicleLogEntry(idx){
   state.vehicleLog.splice(idx, 1);
   render(); scheduleSave();
 }
- 
+
 /* ---------- calculations ---------- */
 const TIME_FARE_BLOCK_MINUTES = 15;
 const TIME_FARE_PER_BLOCK = 1640; // 15分ごとに¥1,640加算（単純比例）
@@ -927,18 +961,18 @@ function calcTrip(t){
   const tickets = Number(t.ticketCount)||0;
   const ticketAmt = tickets * TICKET_VALUE; // タクシー券も運賃のみから差し引く
   const fareNet = Math.max(0, afterDiscountFare - ticketAmt);
- 
+
   const assistanceCount = Number(t.assistanceCount)||0;
   const assistanceFee = assistanceCount * ASSISTANCE_FEE_PER_UNIT;
   const wheelchairFee = optionLookup(WHEELCHAIR_OPTIONS, t.wheelchair).fee;
   const equipmentFee = equipmentFeeFor(t.equipmentQty);
   const nurseFee = t.nurse === 'yes' ? NURSE_FEE : 0;
   const nightSurcharge = t.nightRate === 'yes' ? Math.round(fare * 0.2) : 0; // 早朝深夜割増（運賃の2割）
- 
+
   const revenueAmount = fareNet + assistanceFee + wheelchairFee + equipmentFee + nurseFee + nightSurcharge; // 売上（高速代抜き）
   const highwayFee = Number(t.highwayFee)||0; // 立替金（売上には含めない）
   const cashDue = revenueAmount + highwayFee; // お客様から実際に集金する合計
- 
+
   return { fare, discountAmt, ticketAmt, fareNet, assistanceFee, wheelchairFee, equipmentFee,
     nurseFee, nightSurcharge, highwayFee, revenueAmount, cashDue };
 }
@@ -980,7 +1014,7 @@ function vehicleTotalDist(){
   if(cur !== null){ total += cur; any = true; }
   return any ? total : null;
 }
- 
+
 /* ---------- partial renders ---------- */
 function updateCurrentVehicleDisplay(){
   const v = state.vehicle;
@@ -1044,20 +1078,22 @@ function summaryHTML(t){
     </div>
   `;
 }
- 
+
 function escapeAttr(s){
   return String(s===undefined || s===null ? '' : s).replace(/"/g,'&quot;');
 }
 function escapeText(s){
   return String(s===undefined || s===null ? '' : s).replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
- 
+
 /* ---------- full render ---------- */
 function render(){
   const app = document.getElementById('app');
   const t = totals();
   const vt = vehicleTotalDist();
- 
+  const driverIsCustom = driverCustomMode || (state.driverName !== '' && !isStaffName(state.driverName));
+  const driverCustomValue = isStaffName(state.driverName) ? '' : state.driverName;
+
   app.innerHTML = `
     <div class="head">
       <p class="head-title">介護タクシー運行日誌</p>
@@ -1065,29 +1101,34 @@ function render(){
       <div class="driver-row">
         <div class="driver-field">
           <label>運転者名</label>
-          <input id="driver-input" type="text" placeholder="氏名を入力" value="${escapeAttr(state.driverName)}">
+          <select id="driver-select">
+            <option value="" ${(!driverIsCustom && state.driverName==='') ? 'selected' : ''}>選択してください</option>
+            ${STAFF_OPTIONS.map(n=>`<option value="${n}" ${(!driverIsCustom && normDriver(state.driverName)===n) ? 'selected' : ''}>${n}</option>`).join('')}
+            <option value="__other__" ${driverIsCustom ? 'selected' : ''}>その他（自由入力）</option>
+          </select>
+          ${driverIsCustom ? `<input id="driver-custom" type="text" placeholder="氏名を入力（入力後に確定）" value="${escapeAttr(driverCustomValue)}" style="margin-top:6px;">` : ''}
         </div>
       </div>
     </div>
- 
+
     <div class="section-label">現在の車両</div>
     <div class="trips" id="vehicle-current"></div>
- 
+
     <div class="section-label" id="vehicle-log-label" style="display:none;">本日の車両履歴</div>
     <div class="trips" id="vehicle-log"></div>
- 
+
     <div style="height:4px"></div>
     <div class="vehicle-total-bar">
       <span class="label">合計走行距離</span>
       <span class="value" id="vehicle-total-value">${vt===null ? '--<span>km</span>' : fmtKm(vt)+'<span>km</span>'}</span>
     </div>
- 
+
     <div class="section-label">乗務記録</div>
     <div class="trips" id="trips"></div>
     <button class="add-trip" id="add-trip-btn">＋ 次の乗務を入力</button>
- 
+
     <div style="height:14px"></div>
- 
+
     <div class="summary">
       <div class="summary-row" id="summary-body">
         ${summaryHTML(t)}
@@ -1099,35 +1140,37 @@ function render(){
       </div>
     </div>
   `;
- 
+
   const vehicleCurrentEl = document.getElementById('vehicle-current');
   vehicleCurrentEl.appendChild(renderCurrentVehicleCard(state.vehicle));
- 
+
   const vehicleLogEl = document.getElementById('vehicle-log');
   if(state.vehicleLog.length > 0){
     document.getElementById('vehicle-log-label').style.display = '';
     state.vehicleLog.forEach((v, idx)=> vehicleLogEl.appendChild(renderVehicleLogRow(v, idx+1)));
   }
- 
+
   const tripsEl = document.getElementById('trips');
   state.trips.forEach((tr, idx)=>{
     const isActive = tr.id === state.activeTripId;
     tripsEl.appendChild(isActive ? renderTripCard(tr, idx+1) : renderTripSummary(tr, idx+1));
   });
- 
+
   document.getElementById('date-input').addEventListener('change', e=>{
     switchRecord(e.target.value, state.driverName);
   });
-  document.getElementById('driver-input').addEventListener('input', e=> updateHead('driverName', e.target.value));
-  document.getElementById('driver-input').addEventListener('change', e=>{
-    switchRecord(state.date, e.target.value);
-  });
+  document.getElementById('driver-select').addEventListener('change', e=> onDriverSelect(e.target.value));
+  const driverCustomEl = document.getElementById('driver-custom');
+  if(driverCustomEl){
+    // 入力中は何もせず、入力を終えた時（確定時）に初めて記録を切り替える
+    driverCustomEl.addEventListener('change', e=> switchRecord(loadedDate || state.date, e.target.value.trim()));
+  }
   document.getElementById('add-trip-btn').addEventListener('click', addTrip);
   document.getElementById('save-btn').addEventListener('click', manualSave);
   document.getElementById('csv-btn').addEventListener('click', downloadCSV);
   updateSaveStatus();
 }
- 
+
 function renderCurrentVehicleCard(v){
   const wrap = document.createElement('div');
   wrap.className = 'trip';
@@ -1204,7 +1247,7 @@ function renderCurrentVehicleCard(v){
   wrap.querySelector('#finish-vehicle-btn').addEventListener('click', finishVehicle);
   return wrap;
 }
- 
+
 function renderVehicleLogRow(v, no){
   const wrap = document.createElement('div');
   wrap.className = 'trip-summary';
@@ -1221,7 +1264,7 @@ function renderVehicleLogRow(v, no){
   wrap.querySelector('.trip-summary-del').addEventListener('click', ()=> removeVehicleLogEntry(no-1));
   return wrap;
 }
- 
+
 function renderTripSummary(t, no){
   const wrap = document.createElement('div');
   wrap.className = 'trip-summary';
@@ -1246,7 +1289,7 @@ function renderTripSummary(t, no){
   });
   return wrap;
 }
- 
+
 function renderTripCard(t, no){
   const wrap = document.createElement('div');
   wrap.className = 'trip';
@@ -1375,7 +1418,7 @@ function renderTripCard(t, no){
       <input type="text" data-key="receiptName" data-id="${t.id}" value="${escapeAttr(t.receiptName||'')}" placeholder="例：〇〇様">
     </div>
   `;
- 
+
   wrap.querySelector('.trip-head').addEventListener('click', (e)=>{
     if(e.target.closest('.trip-del')) return;
     state.activeTripId = null;
@@ -1401,10 +1444,10 @@ function renderTripCard(t, no){
   });
   return wrap;
 }
- 
+
 /* ---------- ロック画面 ---------- */
-const APP_PIN = '134679'; // ここを好きな番号に変更してください
- 
+const APP_PIN = '1234'; // ここを好きな番号に変更してください
+
 function renderLockScreen(){
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -1432,7 +1475,7 @@ function renderLockScreen(){
   input.addEventListener('keydown', e=>{ if(e.key === 'Enter') tryUnlock(); });
   input.focus();
 }
- 
+
 /* ---------- init ---------- */
 try{
   renderLockScreen();
@@ -1442,4 +1485,3 @@ try{
 </script>
 </body>
 </html>
- 
