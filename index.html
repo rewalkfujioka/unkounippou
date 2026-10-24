@@ -409,7 +409,7 @@ function newTrip(){
     wheelchair:'', equipmentQty: emptyEquipmentQty(), nurse:'', nightRate:'', highwayFee:'', receiptName:'', note:'' };
 }
 /* 職員リスト（ここに名前を足すと、プルダウンに出て、その人専用のスプレッドシートが作られます） */
-const STAFF_OPTIONS = ['今井正義', '新井優弘', '茂木柾', '小林美穂子','原昂也'];
+const STAFF_OPTIONS = ['今井正義', '新井優弘', '茂木柾', '小林美穂子'];
 function normDriver(n){ return String(n || '').replace(/[\s\u3000]/g, ''); }
 function isStaffName(n){ return STAFF_OPTIONS.includes(normDriver(n)); }
 let driverCustomMode = false; // 「その他（自由入力）」を選んでいる間だけtrue
@@ -468,7 +468,7 @@ window.addEventListener('error', e=> showFatalError(e.message));
 window.addEventListener('unhandledrejection', e=> showFatalError(e.reason));
 
 /* ---------- persistence（Googleスプレッドシート連携） ---------- */
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbxeriR7x-Yc4jVXfMp7wirM_kVjEPS811T6ck1bQwDw_vBuw6GEDJeNqpA1l5uGxJ6adQ/exec';
+const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyS1RAMacvaELAdpA-TXxdBkgfJq5r0klQdbjFkeU845-b6DJg65gN193oo_k-Y2lsy/exec';
 let saveTimer = null;
 let saving = false;       // 保存リクエストが実行中か
 let pendingSave = false;  // 実行中に追加の変更があったか
@@ -1446,7 +1446,7 @@ function renderTripCard(t, no){
 }
 
 /* ---------- ロック画面 ---------- */
-const APP_PIN = '1234'; // ここを好きな番号に変更してください
+const APP_PIN = '134679'; // ここを好きな番号に変更してください
 
 function renderLockScreen(){
   const app = document.getElementById('app');
