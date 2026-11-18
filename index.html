@@ -212,6 +212,16 @@
     font-size:15px; font-weight:700; color:var(--deep-ink);
     font-family:'Space Mono',monospace;
   }
+  .discount-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+  .discount-tab{
+    flex:1 1 auto; min-width:70px;
+    border:1px solid var(--line); border-radius:10px; padding:8px 6px;
+    background:#FFF7F8; color:var(--ink); font-family:inherit; font-size:12.5px; font-weight:700;
+    cursor:pointer; line-height:1.3;
+  }
+  .discount-tab .rate{ display:block; font-size:11px; font-weight:400; color:var(--ink-soft); }
+  .discount-tab.active{ background:var(--deep); border-color:var(--deep); color:#FCEEF1; }
+  .discount-tab.active .rate{ color:#FCEEF1; }
   .equipment-list{ display:flex; flex-direction:column; gap:6px; }
   .equipment-row{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -405,23 +415,50 @@ function equipmentSummaryFor(qty){
 function newTrip(){
   return { id: 'trip-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
     board:null, alight:null, from:'', to:'', male:0, female:0,
-    fare:'', fareManual:false, assistanceCount:0, discountRate:'', ticketCount:'',
+    fare:'', fareManual:false, assistanceCount:0, discountType:'', discountRate:'', ticketCount:'',
     wheelchair:'', equipmentQty: emptyEquipmentQty(), nurse:'', nightRate:'', highwayFee:'', receiptName:'', note:'' };
 }
 /* 職員リスト（ここに名前を足すと、プルダウンに出て、その人専用のスプレッドシートが作られます） */
-const STAFF_OPTIONS = ['今井正義', '新井優弘', '茂木柾', '小林美穂子'];
+const STAFF_OPTIONS = ['今井正義', '新井優弘', '茂木柾', '小林美穂子',
+  '今井千晶', '今井洋子', '鈴木浩彰', '原昂也', '山口悦子', '大河原由美', '熊田竜也'];
 function normDriver(n){ return String(n || '').replace(/[\s\u3000]/g, ''); }
 function isStaffName(n){ return STAFF_OPTIONS.includes(normDriver(n)); }
 let driverCustomMode = false; // 「その他（自由入力）」を選んでいる間だけtrue
 let loadedDate = '';          // いま読み込んでいる記録の日付
 let loadedDriver = '';        // いま読み込んでいる記録の運転者名
+let editingVehicleIdx = null; // 編集中の「本日の車両履歴」の番号（なければnull）
+let vehicleEditCustom = false; // 履歴の編集中に「その他（自由入力）」を選んでいる間だけtrue
 
 const VEHICLE_NAME_OPTIONS = [
   'NBOX（群馬580り226）',
   '白シエンタ（前橋800あ562）',
   'ノア（群馬800あ7393）',
-  '青シエンタ（群馬800あ7520）'
+  '青シエンタ（群馬800あ7520）',
+  'セレナ（前橋800あ554）'
 ];
+/* 割引の種類（タブ）。手帳はどちらも10%、自由記入は割引率を手入力 */
+const DISCOUNT_OPTIONS = [
+  { value:'',       label:'なし',           rate:0 },
+  { value:'shintai',label:'身体障害者手帳', rate:10 },
+  { value:'ryoiku', label:'療育手帳',       rate:10 },
+  { value:'custom', label:'自由記入',       rate:null }
+];
+function discountTypeOf(t){
+  // 古いデータ（割引率だけが入っているもの）は「自由記入」として扱う
+  if(t.discountType !== undefined && t.discountType !== null) return t.discountType;
+  return (t.discountRate !== '' && t.discountRate != null && Number(t.discountRate) > 0) ? 'custom' : '';
+}
+function effectiveDiscountRate(t){
+  const type = discountTypeOf(t);
+  if(type === 'custom') return Number(t.discountRate) || 0;
+  const opt = DISCOUNT_OPTIONS.find(o=>o.value===type);
+  return opt && opt.rate ? opt.rate : 0;
+}
+function discountLabelOf(t){
+  const type = discountTypeOf(t);
+  const opt = DISCOUNT_OPTIONS.find(o=>o.value===type);
+  return opt ? opt.label : 'なし';
+}
 function newVehicle(){
   return { name:'', odoStart:'', odoEnd:'', outTime:null, inTime:null };
 }
@@ -489,6 +526,15 @@ function hasCurrentVehicleData(){
   return !!(v.name || v.odoStart !== '' || v.odoEnd !== '' || v.outTime || v.inTime);
 }
 
+/* 何か1つでも入力されている乗務だけを「迎車回数」として数える（空欄の乗務は数えない） */
+function isTripFilled(t){
+  return !!(t.board || t.alight || t.from || t.to || t.receiptName ||
+    Number(t.fare) > 0 || Number(t.male) > 0 || Number(t.female) > 0);
+}
+function filledTripCount(){
+  return state.trips.filter(isTripFilled).length;
+}
+
 function buildPayload(){
   const tot = totals();
   const vehicleRows = state.vehicleLog.concat(hasCurrentVehicleData() ? [state.vehicle] : []);
@@ -509,7 +555,7 @@ function buildPayload(){
         no: idx+1, board: t.board||'', alight: t.alight||'',
         from: t.from||'', to: t.to||'',
         male: Number(t.male)||0, female: Number(t.female)||0,
-        fare: c.fare, discountRate: Number(t.discountRate)||0, discountAmt: c.discountAmt,
+        fare: c.fare, discountLabel: discountLabelOf(t), discountRate: effectiveDiscountRate(t), discountAmt: c.discountAmt,
         ticketCount: Number(t.ticketCount)||0, ticketAmt: c.ticketAmt, fareNet: c.fareNet,
         assistanceCount: Number(t.assistanceCount)||0, assistanceFee: c.assistanceFee,
         wheelchair: optionLookup(WHEELCHAIR_OPTIONS, t.wheelchair).label, wheelchairFee: c.wheelchairFee,
@@ -523,7 +569,7 @@ function buildPayload(){
     }),
     totals: {
       male: tot.male, female: tot.female, people: tot.total,
-      tripCount: state.trips.length,
+      tripCount: filledTripCount(),
       revenueSum: tot.revenueSum, ticketSum: tot.ticketSum,
       highwaySum: tot.highwaySum, cashSum: tot.cashSum,
       salesTotal: tot.revenueSum + tot.ticketSum,
@@ -550,6 +596,7 @@ function normalizeLoadedState(raw, dateStr){
     if(!t.id) t.id = 'trip-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
     if(!t.equipmentQty) t.equipmentQty = emptyEquipmentQty();
     EQUIPMENT_ITEMS.forEach(it=>{ if(t.equipmentQty[it.key]===undefined) t.equipmentQty[it.key]=0; });
+    if(t.discountType === undefined) t.discountType = discountTypeOf(t);
   });
   return {
     date: dateStr,
@@ -564,6 +611,8 @@ function normalizeLoadedState(raw, dateStr){
 async function loadDate(dateStr, driverName){
   const dn = driverName !== undefined ? driverName : state.driverName;
   driverCustomMode = false;
+  editingVehicleIdx = null;
+  vehicleEditCustom = false;
   showToast('読み込み中…');
   try{
     const res = await fetchWithTimeout(
@@ -717,7 +766,7 @@ function buildTemplateSection(){
     out += csvRow(['','終', v.odoEnd, '入庫', v.inTime || '', '', '']);
   });
   out += '\r\n';
-  out += csvRow(['営業回数/迎車回数', state.trips.length, '現金収入', tot.cashSum, '売上合計', tot.revenueSum + tot.ticketSum]);
+  out += csvRow(['営業回数/迎車回数', filledTripCount(), '現金収入', tot.cashSum, '売上合計', tot.revenueSum + tot.ticketSum]);
   out += csvRow(['運送人員', tot.total, '未収（チケット）', tot.ticketSum]);
   out += '\r\n';
   out += csvRow(['合計', tot.revenueSum + tot.ticketSum]);
@@ -742,7 +791,7 @@ function buildDetailSection(){
   out += csvRow(['合計走行距離(km)', vt===null ? '' : vt]);
   out += '\r\n';
   out += csvRow(['回数','領収書名','乗車時間','降車時間','乗車地','降車地','男','女',
-    '運賃','割引率(%)','割引額','タクシー券(枚)','タクシー券金額','運賃(差引後)',
+    '運賃','割引区分','割引率(%)','割引額','タクシー券(枚)','タクシー券金額','運賃(差引後)',
     '介助料(回)','介助料金額','貸出車椅子','車椅子料金',
     ...EQUIPMENT_ITEMS.map(it=>`${it.label}(${it.unit})`),'備品料金合計',
     '看護師同乗','看護師料金','早朝深夜割増','深夜割増料金',
@@ -751,7 +800,7 @@ function buildDetailSection(){
     const c = calcTrip(t);
     const qty = t.equipmentQty || emptyEquipmentQty();
     out += csvRow([idx+1, t.receiptName||'', t.board||'', t.alight||'', t.from||'', t.to||'',
-      t.male||0, t.female||0, c.fare, Number(t.discountRate)||0, c.discountAmt,
+      t.male||0, t.female||0, c.fare, discountLabelOf(t), effectiveDiscountRate(t), c.discountAmt,
       Number(t.ticketCount)||0, c.ticketAmt, c.fareNet,
       Number(t.assistanceCount)||0, c.assistanceFee,
       optionLookup(WHEELCHAIR_OPTIONS, t.wheelchair).label, c.wheelchairFee,
@@ -850,6 +899,11 @@ function updateField(id, key, value){
   updateTripBreakdown(id);
   scheduleSave();
 }
+function setDiscountType(id, type){
+  const t = state.trips.find(t=>t.id===id);
+  t.discountType = type;
+  render(); scheduleSave();
+}
 function updateEquipmentQty(id, key, value){
   const t = state.trips.find(t=>t.id===id);
   if(!t.equipmentQty) t.equipmentQty = emptyEquipmentQty();
@@ -869,12 +923,6 @@ function updateHead(key, value){
 }
 
 /* ---------- vehicle actions ---------- */
-function updateVehicleField(key, value){
-  state.vehicle[key] = value;
-  updateCurrentVehicleDisplay();
-  updateVehicleTotalDisplay();
-  scheduleSave();
-}
 function finishVehicle(){
   const v = state.vehicle;
   if(v.odoEnd === '' || v.odoEnd === null || v.odoEnd === undefined){
@@ -885,31 +933,23 @@ function finishVehicle(){
   state.vehicle = newVehicle();
   render(); scheduleSave();
 }
-function markVehicleOut(){
-  state.vehicle.outTime = nowTimeStr();
-  render(); scheduleSave();
-}
-function markVehicleIn(){
-  state.vehicle.inTime = nowTimeStr();
-  render(); scheduleSave();
-}
-function updateVehicleTime(key, value){
-  state.vehicle[key] = value || null;
-  const btn = document.getElementById(key === 'outTime' ? 'veh-out-btn' : 'veh-in-btn');
-  if(btn){
-    if(state.vehicle[key]){
-      btn.classList.add('done');
-      btn.textContent = '記録済み';
-    } else {
-      btn.classList.remove('done');
-      btn.textContent = key === 'outTime' ? '出庫を記録' : '入庫を記録';
-    }
-  }
-  scheduleSave();
-}
 function removeVehicleLogEntry(idx){
   state.vehicleLog.splice(idx, 1);
+  if(editingVehicleIdx !== null){
+    if(editingVehicleIdx === idx){ editingVehicleIdx = null; vehicleEditCustom = false; }
+    else if(idx < editingVehicleIdx){ editingVehicleIdx--; }
+  }
   render(); scheduleSave();
+}
+function openVehicleEdit(idx){
+  editingVehicleIdx = idx;
+  vehicleEditCustom = false;
+  render();
+}
+function closeVehicleEdit(){
+  editingVehicleIdx = null;
+  vehicleEditCustom = false;
+  render();
 }
 
 /* ---------- calculations ---------- */
@@ -955,7 +995,7 @@ function optionLookup(list, value){
 }
 function calcTrip(t){
   const fare = Number(t.fare)||0;
-  const rate = Number(t.discountRate)||0;
+  const rate = effectiveDiscountRate(t);
   const discountAmt = Math.round(fare * (rate/100)); // 割引は運賃のみに適用
   const afterDiscountFare = Math.max(0, fare - discountAmt);
   const tickets = Number(t.ticketCount)||0;
@@ -967,7 +1007,9 @@ function calcTrip(t){
   const wheelchairFee = optionLookup(WHEELCHAIR_OPTIONS, t.wheelchair).fee;
   const equipmentFee = equipmentFeeFor(t.equipmentQty);
   const nurseFee = t.nurse === 'yes' ? NURSE_FEE : 0;
-  const nightSurcharge = t.nightRate === 'yes' ? Math.round(fare * 0.2) : 0; // 早朝深夜割増（運賃の2割）
+  // 早朝深夜割増：運賃（割引後）＋介助料＋車椅子＋備品＋看護師同乗 の合計の2割（高速料金は立替金なので含めない。タクシー券を引く前の金額が対象）
+  const surchargeBase = afterDiscountFare + assistanceFee + wheelchairFee + equipmentFee + nurseFee;
+  const nightSurcharge = t.nightRate === 'yes' ? Math.round(surchargeBase * 0.2) : 0;
 
   const revenueAmount = fareNet + assistanceFee + wheelchairFee + equipmentFee + nurseFee + nightSurcharge; // 売上（高速代抜き）
   const highwayFee = Number(t.highwayFee)||0; // 立替金（売上には含めない）
@@ -1016,18 +1058,6 @@ function vehicleTotalDist(){
 }
 
 /* ---------- partial renders ---------- */
-function updateCurrentVehicleDisplay(){
-  const v = state.vehicle;
-  const distEl = document.getElementById('current-veh-dist');
-  const warnEl = document.getElementById('current-veh-warn');
-  if(distEl){
-    const d = calcVehicleDist(v);
-    distEl.textContent = d===null ? '--' : fmtKm(d)+' km';
-  }
-  if(warnEl){
-    warnEl.textContent = vehicleHasNegative(v) ? '帰着メーターが出発メーターより小さくなっています' : '';
-  }
-}
 function updateVehicleTotalDisplay(){
   const el = document.getElementById('vehicle-total-value');
   if(!el) return;
@@ -1036,14 +1066,14 @@ function updateVehicleTotalDisplay(){
 }
 function fareBreakdownHTML(t, c){
   return `
-    <div class="row"><span>割引額（${Number(t.discountRate)||0}%・運賃のみ）</span><span>-¥${c.discountAmt.toLocaleString()}</span></div>
+    <div class="row"><span>割引額（${discountLabelOf(t)} ${effectiveDiscountRate(t)}%・運賃のみ）</span><span>-¥${c.discountAmt.toLocaleString()}</span></div>
     <div class="row"><span>タクシー券（${Number(t.ticketCount)||0}枚・運賃のみ）</span><span>-¥${c.ticketAmt.toLocaleString()}</span></div>
     <div class="row"><span>運賃（差引後）</span><span>¥${c.fareNet.toLocaleString()}</span></div>
     <div class="row"><span>介助料（${Number(t.assistanceCount)||0}回）</span><span>+¥${c.assistanceFee.toLocaleString()}</span></div>
     <div class="row"><span>貸出車椅子（${optionLookup(WHEELCHAIR_OPTIONS, t.wheelchair).label}）</span><span>+¥${c.wheelchairFee.toLocaleString()}</span></div>
     <div class="row"><span>貸出備品（${equipmentSummaryFor(t.equipmentQty)}）</span><span>+¥${c.equipmentFee.toLocaleString()}</span></div>
     <div class="row"><span>看護師同乗</span><span>+¥${c.nurseFee.toLocaleString()}</span></div>
-    <div class="row"><span>早朝深夜割増（${t.nightRate==='yes' ? 'あり' : 'なし'}）</span><span>+¥${c.nightSurcharge.toLocaleString()}</span></div>
+    <div class="row"><span>早朝深夜割増（${t.nightRate==='yes' ? 'あり・合計の2割' : 'なし'}）</span><span>+¥${c.nightSurcharge.toLocaleString()}</span></div>
     <div class="row"><span>売上小計（高速代抜き）</span><span>¥${c.revenueAmount.toLocaleString()}</span></div>
     <div class="row"><span>高速料金（立替）</span><span>+¥${c.highwayFee.toLocaleString()}</span></div>
     <div class="row total"><span>現金受取額（合計）</span><span>¥${c.cashDue.toLocaleString()}</span></div>
@@ -1114,7 +1144,7 @@ function render(){
     <div class="section-label">現在の車両</div>
     <div class="trips" id="vehicle-current"></div>
 
-    <div class="section-label" id="vehicle-log-label" style="display:none;">本日の車両履歴</div>
+    <div class="section-label" id="vehicle-log-label" style="display:none;">本日の車両履歴（タップで編集）</div>
     <div class="trips" id="vehicle-log"></div>
 
     <div style="height:4px"></div>
@@ -1142,12 +1172,16 @@ function render(){
   `;
 
   const vehicleCurrentEl = document.getElementById('vehicle-current');
-  vehicleCurrentEl.appendChild(renderCurrentVehicleCard(state.vehicle));
+  vehicleCurrentEl.appendChild(renderVehicleEditor(state.vehicle, { isCurrent: true }));
 
   const vehicleLogEl = document.getElementById('vehicle-log');
   if(state.vehicleLog.length > 0){
     document.getElementById('vehicle-log-label').style.display = '';
-    state.vehicleLog.forEach((v, idx)=> vehicleLogEl.appendChild(renderVehicleLogRow(v, idx+1)));
+    state.vehicleLog.forEach((v, idx)=>{
+      vehicleLogEl.appendChild(idx === editingVehicleIdx
+        ? renderVehicleEditor(v, { isCurrent: false, idx })
+        : renderVehicleLogRow(v, idx+1));
+    });
   }
 
   const tripsEl = document.getElementById('trips');
@@ -1171,87 +1205,121 @@ function render(){
   updateSaveStatus();
 }
 
-function renderCurrentVehicleCard(v){
+function renderVehicleEditor(v, opts){
+  // v: 編集する車両のデータ（現在の車両 or 履歴の1件）、opts: { isCurrent, idx }
+  const isCurrent = !!opts.isCurrent;
   const wrap = document.createElement('div');
   wrap.className = 'trip';
-  const d = calcVehicleDist(v);
-  const warn = vehicleHasNegative(v) ? '帰着メーターが出発メーターより小さくなっています' : '';
-  const isCustom = v._customName || (v.name !== '' && !VEHICLE_NAME_OPTIONS.includes(v.name));
+  const customOn = isCurrent ? !!v._customName : vehicleEditCustom;
+  const isCustom = customOn || (v.name !== '' && !VEHICLE_NAME_OPTIONS.includes(v.name));
+  const d0 = calcVehicleDist(v);
+  const warn0 = vehicleHasNegative(v) ? '帰着メーターが出発メーターより小さくなっています' : '';
   wrap.innerHTML = `
+    ${isCurrent ? '' : `
+    <div class="trip-head">
+      <div class="trip-no"><span class="badge">${opts.idx+1}</span>車両の編集 <span class="hint">（タップでたたむ）</span></div>
+      <button class="trip-del">削除</button>
+    </div>`}
     <div class="time-row">
       <div class="time-cell">
         <span class="time-cell-label">出庫時刻</span>
-        <input type="time" class="time-input" id="veh-out-time" value="${v.outTime || ''}">
-        <button id="veh-out-btn" class="${v.outTime ? 'done':''}">${v.outTime ? '記録済み' : '出庫を記録'}</button>
+        <input type="time" class="time-input veh-out-time" value="${v.outTime || ''}">
+        <button class="veh-out-btn ${v.outTime ? 'done':''}">${v.outTime ? '記録済み' : '出庫を記録'}</button>
       </div>
       <div class="time-cell">
         <span class="time-cell-label">入庫時刻</span>
-        <input type="time" class="time-input" id="veh-in-time" value="${v.inTime || ''}">
-        <button id="veh-in-btn" class="${v.inTime ? 'done':''}">${v.inTime ? '記録済み' : '入庫を記録'}</button>
+        <input type="time" class="time-input veh-in-time" value="${v.inTime || ''}">
+        <button class="veh-in-btn ${v.inTime ? 'done':''}">${v.inTime ? '記録済み' : '入庫を記録'}</button>
       </div>
     </div>
     <div class="field">
       <label>車種</label>
-      <select id="veh-name-select">
-        <option value="" ${v.name===''?'selected':''}>選択してください</option>
-        ${VEHICLE_NAME_OPTIONS.map(o=>`<option value="${o}" ${v.name===o?'selected':''}>${o}</option>`).join('')}
+      <select class="veh-name-select">
+        <option value="" ${v.name==='' && !isCustom ? 'selected':''}>選択してください</option>
+        ${VEHICLE_NAME_OPTIONS.map(o=>`<option value="${o}" ${(!isCustom && v.name===o)?'selected':''}>${o}</option>`).join('')}
         <option value="__other__" ${isCustom?'selected':''}>その他（自由入力）</option>
       </select>
     </div>
     ${isCustom ? `
     <div class="field" style="margin-top:8px;">
       <label>車種（自由入力）</label>
-      <input type="text" id="veh-name-custom" value="${escapeAttr(v.name)}" placeholder="車種を入力">
+      <input type="text" class="veh-name-custom" value="${escapeAttr(v.name)}" placeholder="車種を入力">
     </div>` : ''}
     <div class="mini-fields">
       <div class="mini-field">
         <label>出発メーター(km)</label>
-        <input type="number" inputmode="decimal" id="veh-odo-start" value="${v.odoStart}">
+        <input type="number" inputmode="decimal" class="veh-odo-start" value="${v.odoStart}">
       </div>
       <div class="mini-field">
         <label>帰着メーター(km)</label>
-        <input type="number" inputmode="decimal" id="veh-odo-end" value="${v.odoEnd}">
+        <input type="number" inputmode="decimal" class="veh-odo-end" value="${v.odoEnd}">
       </div>
       <div class="mini-field">
         <label>区間距離</label>
-        <div class="dist-display" id="current-veh-dist">${d===null ? '--' : fmtKm(d)+' km'}</div>
+        <div class="dist-display veh-dist">${d0===null ? '--' : fmtKm(d0)+' km'}</div>
       </div>
     </div>
-    <div class="meter-warn" id="current-veh-warn">${warn}</div>
-    <button class="add-trip" id="finish-vehicle-btn" style="margin:12px 0 0; width:100%;">次の車両へ（この車両を確定）</button>
+    <div class="meter-warn veh-warn">${warn0}</div>
+    ${isCurrent
+      ? '<button class="add-trip veh-finish-btn" style="margin:12px 0 0; width:100%;">次の車両へ（この車両を確定）</button>'
+      : '<button class="add-trip veh-close-btn" style="margin:12px 0 0; width:100%;">編集を終える</button>'}
   `;
-  wrap.querySelector('#veh-name-select').addEventListener('change', e=>{
+
+  const q = s => wrap.querySelector(s);
+  const refreshDist = ()=>{
+    const d = calcVehicleDist(v);
+    q('.veh-dist').textContent = d===null ? '--' : fmtKm(d)+' km';
+    q('.veh-warn').textContent = vehicleHasNegative(v) ? '帰着メーターが出発メーターより小さくなっています' : '';
+  };
+
+  q('.veh-name-select').addEventListener('change', e=>{
     const val = e.target.value;
     if(val === '__other__'){
-      state.vehicle.name = '';
-      state.vehicle._customName = true;
+      v.name = '';
+      if(isCurrent) v._customName = true; else vehicleEditCustom = true;
     } else {
-      state.vehicle.name = val;
-      delete state.vehicle._customName;
+      v.name = val;
+      if(isCurrent) delete v._customName; else vehicleEditCustom = false;
     }
     render(); scheduleSave();
   });
-  const customInput = wrap.querySelector('#veh-name-custom');
+  const customInput = q('.veh-name-custom');
   if(customInput){
-    customInput.addEventListener('input', e=>{
-      state.vehicle.name = e.target.value;
+    customInput.addEventListener('input', e=>{ v.name = e.target.value; scheduleSave(); });
+  }
+  q('.veh-odo-start').addEventListener('input', e=>{
+    v.odoStart = e.target.value; refreshDist(); updateVehicleTotalDisplay(); scheduleSave();
+  });
+  q('.veh-odo-end').addEventListener('input', e=>{
+    v.odoEnd = e.target.value; refreshDist(); updateVehicleTotalDisplay(); scheduleSave();
+  });
+  q('.veh-out-btn').addEventListener('click', ()=>{ v.outTime = nowTimeStr(); render(); scheduleSave(); });
+  q('.veh-in-btn').addEventListener('click', ()=>{ v.inTime = nowTimeStr(); render(); scheduleSave(); });
+  const bindTime = (inputSel, btnSel, key, label)=>{
+    q(inputSel).addEventListener('input', e=>{
+      v[key] = e.target.value || null;
+      const btn = q(btnSel);
+      if(v[key]){ btn.classList.add('done'); btn.textContent = '記録済み'; }
+      else { btn.classList.remove('done'); btn.textContent = label; }
       scheduleSave();
     });
+  };
+  bindTime('.veh-out-time', '.veh-out-btn', 'outTime', '出庫を記録');
+  bindTime('.veh-in-time', '.veh-in-btn', 'inTime', '入庫を記録');
+
+  if(isCurrent){
+    q('.veh-finish-btn').addEventListener('click', finishVehicle);
+  } else {
+    q('.veh-close-btn').addEventListener('click', closeVehicleEdit);
+    q('.trip-head').addEventListener('click', e=>{ if(e.target.closest('.trip-del')) return; closeVehicleEdit(); });
+    q('.trip-del').addEventListener('click', e=>{ e.stopPropagation(); removeVehicleLogEntry(opts.idx); });
   }
-  wrap.querySelector('#veh-odo-start').addEventListener('input', e=> updateVehicleField('odoStart', e.target.value));
-  wrap.querySelector('#veh-odo-end').addEventListener('input', e=> updateVehicleField('odoEnd', e.target.value));
-  wrap.querySelector('#veh-out-btn').addEventListener('click', markVehicleOut);
-  wrap.querySelector('#veh-in-btn').addEventListener('click', markVehicleIn);
-  wrap.querySelector('#veh-out-time').addEventListener('input', e=> updateVehicleTime('outTime', e.target.value));
-  wrap.querySelector('#veh-in-time').addEventListener('input', e=> updateVehicleTime('inTime', e.target.value));
-  wrap.querySelector('#finish-vehicle-btn').addEventListener('click', finishVehicle);
   return wrap;
 }
 
 function renderVehicleLogRow(v, no){
   const wrap = document.createElement('div');
   wrap.className = 'trip-summary';
-  wrap.style.cursor = 'default';
   const d = calcVehicleDist(v);
   wrap.innerHTML = `
     <div class="trip-summary-badge">${no}</div>
@@ -1261,7 +1329,14 @@ function renderVehicleLogRow(v, no){
     </div>
     <button class="trip-summary-del" data-idx="${no-1}">削除</button>
   `;
-  wrap.querySelector('.trip-summary-del').addEventListener('click', ()=> removeVehicleLogEntry(no-1));
+  wrap.addEventListener('click', e=>{
+    if(e.target.closest('.trip-summary-del')) return;
+    openVehicleEdit(no-1);
+  });
+  wrap.querySelector('.trip-summary-del').addEventListener('click', e=>{
+    e.stopPropagation();
+    removeVehicleLogEntry(no-1);
+  });
   return wrap;
 }
 
@@ -1298,6 +1373,10 @@ function renderTripCard(t, no){
     <div class="trip-head">
       <div class="trip-no"><span class="badge">${no}</span>乗務記録 <span class="hint">（タップでたたむ）</span></div>
       <button class="trip-del" data-id="${t.id}">削除</button>
+    </div>
+    <div class="field" style="margin-bottom:10px;">
+      <label>領収書名</label>
+      <input type="text" data-key="receiptName" data-id="${t.id}" value="${escapeAttr(t.receiptName||'')}" placeholder="例：〇〇様">
     </div>
     <div class="time-row">
       <div class="time-cell">
@@ -1353,13 +1432,16 @@ function renderTripCard(t, no){
           </select>
         </div>
         <div class="field">
-          <label>割引率（%）</label>
-          <input type="number" inputmode="numeric" data-key="discountRate" data-id="${t.id}" value="${t.discountRate}" placeholder="0">
-        </div>
-        <div class="field">
           <label>タクシー券（枚）</label>
           <input type="number" inputmode="numeric" data-key="ticketCount" data-id="${t.id}" value="${t.ticketCount}" placeholder="0">
         </div>
+      </div>
+      <div class="field" style="margin-top:8px;">
+        <label>割引</label>
+        <div class="discount-tabs">
+          ${DISCOUNT_OPTIONS.map(o=>`<button type="button" class="discount-tab ${discountTypeOf(t)===o.value ? 'active':''}" data-discount="${o.value}" data-id="${t.id}">${o.label}${o.rate ? '<span class="rate">'+o.rate+'%</span>' : ''}</button>`).join('')}
+        </div>
+        ${discountTypeOf(t)==='custom' ? `<input type="number" inputmode="decimal" data-key="discountRate" data-id="${t.id}" value="${t.discountRate}" placeholder="割引率（%）を入力" style="margin-top:6px;">` : ''}
       </div>
       <div class="field" style="margin-top:8px;">
         <label>貸出車椅子</label>
@@ -1395,7 +1477,7 @@ function renderTripCard(t, no){
         </select>
       </div>
       <div class="field" style="margin-top:8px;">
-        <label>早朝深夜割増（運賃の2割）</label>
+        <label>早朝深夜割増（合計金額の2割）</label>
         <select data-key="nightRate" data-id="${t.id}">
           <option value="" ${t.nightRate!=='yes'?'selected':''}>なし</option>
           <option value="yes" ${t.nightRate==='yes'?'selected':''}>あり（+2割）</option>
@@ -1412,10 +1494,6 @@ function renderTripCard(t, no){
     <div class="field" style="margin-top:8px;">
       <label>備考</label>
       <textarea data-key="note" data-id="${t.id}" placeholder="高速料金など">${escapeText(t.note||'')}</textarea>
-    </div>
-    <div class="field" style="margin-top:8px;">
-      <label>領収書名</label>
-      <input type="text" data-key="receiptName" data-id="${t.id}" value="${escapeAttr(t.receiptName||'')}" placeholder="例：〇〇様">
     </div>
   `;
 
@@ -1434,6 +1512,9 @@ function renderTripCard(t, no){
   wrap.querySelectorAll('input[data-key], textarea[data-key], select[data-key]').forEach(el=>{
     el.addEventListener('input', ()=> updateField(t.id, el.dataset.key, el.value));
     el.addEventListener('click', e=> e.stopPropagation());
+  });
+  wrap.querySelectorAll('[data-discount]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{ e.stopPropagation(); setDiscountType(t.id, btn.dataset.discount); });
   });
   wrap.querySelectorAll('[data-equip]').forEach(el=>{
     el.addEventListener('input', ()=> updateEquipmentQty(t.id, el.dataset.equip, el.value));
