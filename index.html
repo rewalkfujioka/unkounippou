@@ -343,7 +343,7 @@
     background:var(--deep-ink); color:#FCEEF1;
     padding:10px 16px; border-radius:10px; font-size:13px;
     opacity:0; transition:opacity 0.25s; pointer-events:none;
-    max-width:90%; text-align:center; z-index:50;
+    max-width:90%; text-align:center; z-index:50; white-space:pre-line;
   }
   .toast.show{ opacity:1; }
 
@@ -482,12 +482,12 @@ function fmtKm(v){
 }
 const TICKET_VALUE = 500;
 
-function showToast(msg){
+function showToast(msg, ms){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(()=>t.classList.remove('show'), 2200);
+  t._timer = setTimeout(()=>t.classList.remove('show'), ms || 2200);
 }
 
 /* ---------- error fallback（真っ白のまま止まらないようにする） ---------- */
@@ -585,8 +585,32 @@ async function sendSave(){
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライトを避けるためtext/plainで送る
     body: JSON.stringify(buildPayload())
   }, 25000);
-  const data = await res.json();
-  return !!(data && data.ok);
+  let data;
+  try{
+    data = await res.json();
+  } catch(e){
+    const err = new Error('応答がJSONではありません');
+    err.kind = 'badresponse';
+    throw err;
+  }
+  if(!data || !data.ok){
+    const err = new Error((data && data.error) ? data.error : '不明なエラー');
+    err.kind = 'server';
+    throw err;
+  }
+  return true;
+}
+
+/* 保存に失敗した理由を、画面に出せる文章にする */
+let lastSaveError = '';
+function describeSaveError(e){
+  if(typeof navigator !== 'undefined' && navigator.onLine === false) return '電波がつながっていません';
+  if(!e) return '原因不明';
+  if(e.name === 'AbortError') return '通信がタイムアウトしました（電波が弱い、またはApps Scriptの応答が遅い）';
+  if(e.kind === 'server') return 'Apps Script側のエラー：' + e.message;
+  if(e.kind === 'badresponse') return 'Apps Scriptの応答が想定外です（公開設定が「全員」か、デプロイが最新かを確認してください）';
+  if(e.name === 'TypeError') return 'Apps Scriptに接続できません（電波、または公開設定・アクセス権の問題）';
+  return String(e.message || e);
 }
 
 function normalizeLoadedState(raw, dateStr){
@@ -689,7 +713,7 @@ async function runSave(isManual){
     dirty = false;
     if(isManual) showToast('スプレッドシートに保存しました');
   } else {
-    if(isManual) showToast('保存できませんでした。電波の良い場所で「保存」を押し直してください');
+    if(isManual) showToast('保存できませんでした：' + (lastSaveError || '原因不明') + '\n電波の良い場所で「保存」を押し直してください', 8000);
   }
   updateSaveStatus();
   if(pendingSave){
@@ -703,8 +727,10 @@ async function sendSaveWithRetry(attempts){
   for(let i = 0; i < attempts; i++){
     if(waits[i]) await new Promise(r=> setTimeout(r, waits[i]));
     try{
-      if(await sendSave()) return true;
-    } catch(e){ /* 次の試行へ */ }
+      if(await sendSave()){ lastSaveError = ''; return true; }
+    } catch(e){
+      lastSaveError = describeSaveError(e); // 次の試行へ
+    }
   }
   return false;
 }
@@ -714,6 +740,7 @@ function updateSaveStatus(){
   if(!el) return;
   if(saving){ el.textContent = '保存中…'; el.className = 'save-status saving'; }
   else if(dirty && !state.driverName){ el.textContent = '運転者名を選択'; el.className = 'save-status dirty'; }
+  else if(dirty && lastSaveError){ el.textContent = '保存失敗'; el.className = 'save-status dirty'; }
   else if(dirty){ el.textContent = '未保存'; el.className = 'save-status dirty'; }
   else { el.textContent = '保存済み'; el.className = 'save-status saved'; }
 }
