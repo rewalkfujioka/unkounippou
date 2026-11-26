@@ -54,6 +54,17 @@
     color:#F0C9D3;
     margin:0 0 4px;
   }
+  .head-title .ver{
+    font-size:10px; font-weight:700; letter-spacing:0.02em;
+    background:rgba(255,255,255,0.18); border-radius:6px;
+    padding:1px 6px; margin-left:6px; color:#FCEEF1;
+  }
+  .load-warn{
+    background:#FDE7EC; color:#8E2F45;
+    font-size:12px; font-weight:700; line-height:1.5;
+    padding:10px 18px; border-bottom:1px solid #F3D7DE;
+  }
+  .save-status.warn{ background:#FDE7EC; color:#8E2F45; }
   .head input[type=date]{
     background:transparent;
     border:none;
@@ -506,10 +517,12 @@ window.addEventListener('unhandledrejection', e=> showFatalError(e.reason));
 
 /* ---------- persistence（Googleスプレッドシート連携） ---------- */
 const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyS1RAMacvaELAdpA-TXxdBkgfJq5r0klQdbjFkeU845-b6DJg65gN193oo_k-Y2lsy/exec';
+const APP_VERSION = 'v4'; // 画面に出るバージョン（問い合わせ時の識別用）
 let saveTimer = null;
 let saving = false;       // 保存リクエストが実行中か
 let pendingSave = false;  // 実行中に追加の変更があったか
 let dirty = false;        // 未保存の変更があるか
+let loadFailed = false;   // 読み込みに失敗したか（上書き事故の防止に使う）
 
 async function fetchWithTimeout(url, options, timeoutMs){
   const controller = new AbortController();
@@ -579,7 +592,29 @@ function buildPayload(){
   };
 }
 
-async function sendSave(){
+/* ===== 端末内の下書き（電波が切れても入力が消えないようにする） ===== */
+const DRAFT_PREFIX = 'nihon_draft_v1_';
+function draftKeyFor(dateStr, driverName){
+  return DRAFT_PREFIX + (dateStr || '') + '_' + normDriver(driverName || '');
+}
+function saveDraft(){
+  try{
+    localStorage.setItem(draftKeyFor(state.date, state.driverName),
+      JSON.stringify({ savedAt: Date.now(), state: state }));
+  } catch(e){ /* 容量不足などは無視 */ }
+}
+function loadDraftFor(dateStr, driverName){
+  try{
+    const raw = localStorage.getItem(draftKeyFor(dateStr, driverName));
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){ return null; }
+}
+function clearDraft(){
+  try{ localStorage.removeItem(draftKeyFor(state.date, state.driverName)); } catch(e){}
+}
+
+/* ===== 送信1：応答も読む（本来の方式） ===== */
+async function sendSaveNormal(){
   const res = await fetchWithTimeout(SHEET_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライトを避けるためtext/plainで送る
@@ -601,6 +636,67 @@ async function sendSave(){
   return true;
 }
 
+/* ===== 送信2：応答を読まない（応答が読めない端末・ブラウザ向けの保険） =====
+   応答は読めないが、リクエスト自体は確実に届く。
+   Apps Scriptは「応答を返す前」に保存を終えているので、これで入る。 */
+async function sendSaveBlind(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=> controller.abort(), 25000);
+  try{
+    await fetch(SHEET_API_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(buildPayload()),
+      signal: controller.signal
+    });
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ===== 本当に入ったかを、読み込みで確認する ===== */
+async function verifySavedOnline(){
+  await new Promise(r=> setTimeout(r, 1500));
+  try{
+    const res = await fetchWithTimeout(
+      `${SHEET_API_URL}?date=${encodeURIComponent(state.date)}&driver=${encodeURIComponent(state.driverName || '')}&_=${Date.now()}`,
+      {}, 20000);
+    const data = await res.json();
+    if(!(data && data.ok && data.exists && data.raw)) return false;
+    const t = data.raw.totals || {};
+    const mine = totals();
+    return Number(t.cashSum || 0) === Number(mine.cashSum || 0)
+        && Number(t.people || 0) === Number(mine.total || 0);
+  } catch(e){
+    return false; // 確認できないだけ。保存自体は成功している可能性がある
+  }
+}
+
+/* ===== 1回ぶんの保存 =====
+   戻り値: 'ok'   = 保存して確認できた
+          'sent' = 送信したが確認できなかった
+          'fail' = 送信できなかった */
+async function saveOnce(){
+  try{
+    await sendSaveNormal();
+    loadFailed = false;
+    return 'ok';
+  } catch(e){
+    lastSaveError = describeSaveError(e);
+  }
+  try{
+    await sendSaveBlind();
+  } catch(e){
+    lastSaveError = describeSaveError(e);
+    return 'fail';
+  }
+  const verified = await verifySavedOnline();
+  if(verified) loadFailed = false;
+  return verified ? 'ok' : 'sent';
+}
+
 /* 保存に失敗した理由を、画面に出せる文章にする */
 let lastSaveError = '';
 function describeSaveError(e){
@@ -608,8 +704,8 @@ function describeSaveError(e){
   if(!e) return '原因不明';
   if(e.name === 'AbortError') return '通信がタイムアウトしました（電波が弱い、またはApps Scriptの応答が遅い）';
   if(e.kind === 'server') return 'Apps Script側のエラー：' + e.message;
-  if(e.kind === 'badresponse') return 'Apps Scriptの応答が想定外です（公開設定が「全員」か、デプロイが最新かを確認してください）';
-  if(e.name === 'TypeError') return 'Apps Scriptに接続できません（電波、または公開設定・アクセス権の問題）';
+  if(e.kind === 'badresponse') return 'この端末では応答を読み取れません（保存自体は成功していることが多いです）';
+  if(e.name === 'TypeError') return 'この端末からApps Scriptに接続できません（電波・社内Wi-Fiの制限など）';
   return String(e.message || e);
 }
 
@@ -638,23 +734,60 @@ async function loadDate(dateStr, driverName){
   editingVehicleIdx = null;
   vehicleEditCustom = false;
   showToast('読み込み中…');
+
+  let serverOk = false;      // サーバーから正しく読めたか
+  let serverNoRecord = false; // 読めたが「記録なし」だったか
   try{
     const res = await fetchWithTimeout(
-      `${SHEET_API_URL}?date=${encodeURIComponent(dateStr)}&driver=${encodeURIComponent(dn||'')}`, {}, 25000);
+      `${SHEET_API_URL}?date=${encodeURIComponent(dateStr)}&driver=${encodeURIComponent(dn||'')}&_=${Date.now()}`, {}, 25000);
     const data = await res.json();
     if(data && data.ok && data.exists && data.raw){
       state = normalizeLoadedState(data.raw, dateStr);
       if(!state.driverName) state.driverName = dn || '';
-    } else {
+      serverOk = true;
+    } else if(data && data.ok && data.exists === false){
       state = blankState(dateStr);
       state.driverName = dn || '';
+      serverOk = true;
+      serverNoRecord = true;
+    } else {
+      throw new Error('想定外の応答');
     }
   } catch(e){
     state = blankState(dateStr);
     state.driverName = dn || '';
-    showToast(e.name === 'AbortError' ? '通信がタイムアウトしました' : 'スプレッドシートに接続できませんでした');
+    serverOk = false;
   }
+
+  if(!serverOk){
+    // 読み込めなかった → 端末に残っている下書きを探す（あれば上書き事故を防げる）
+    const d = loadDraftFor(dateStr, dn);
+    if(d && d.state){
+      state = normalizeLoadedState(d.state, dateStr);
+      state.driverName = dn || state.driverName || '';
+      loadFailed = true;
+      dirty = true;
+      loadedDate = state.date;
+      loadedDriver = state.driverName;
+      render();
+      updateSaveStatus();
+      showToast('通信できませんでした。端末に残っていた入力内容を表示しています', 5000);
+      return;
+    }
+    loadFailed = true;
+    dirty = false;
+    loadedDate = state.date;
+    loadedDriver = state.driverName;
+    render();
+    updateSaveStatus();
+    showToast('スプレッドシートに接続できませんでした（保存すると上書きの恐れがあります）', 5000);
+    return;
+  }
+
+  loadFailed = false;
   dirty = false;
+  lastSaveError = '';
+  if(serverNoRecord) clearDraft();
   loadedDate = state.date;
   loadedDriver = state.driverName;
   render();
@@ -687,6 +820,8 @@ function onDriverSelect(value){
 
 function scheduleSave(){
   dirty = true;
+  lastSaveError = '';
+  saveDraft();          // まず端末に残す（電波が切れても消えない）
   updateSaveStatus();
   clearTimeout(saveTimer);
   if(!state.driverName) return; // 運転者名が未選択の間は自動保存しない
@@ -699,21 +834,34 @@ async function runSave(isManual){
     if(isManual) showToast('先に運転者名を選んでください');
     return;
   }
+  if(isManual && loadFailed){
+    if(!confirm('読み込みができていない状態です。\n保存すると、すでにある記録を上書きする可能性があります。\n保存しますか？')) return;
+  }
   if(saving){ pendingSave = true; return; }
   saving = true;
   updateSaveStatus();
-  let ok = false;
+  let result = 'fail';
   try{
-    ok = await sendSaveWithRetry(isManual ? 3 : 2);
+    result = await saveOnceWithRetry(isManual ? 3 : 2);
   } catch(e){
-    ok = false;
+    result = 'fail';
   }
   saving = false;
-  if(ok){
+
+  if(result === 'ok'){
     dirty = false;
+    clearDraft();
     if(isManual) showToast('スプレッドシートに保存しました');
+  } else if(result === 'sent'){
+    // 送信はできたが確認できなかった。データは入っている可能性が高いので「未保存」には戻さない
+    dirty = false;
+    lastSaveError = '';
+    showToast('送信しました（この端末では確認できませんでした）\n電波の良い場所でもう一度「保存」を押すと確認できます', 6000);
   } else {
-    if(isManual) showToast('保存できませんでした：' + (lastSaveError || '原因不明') + '\n電波の良い場所で「保存」を押し直してください', 8000);
+    dirty = true;
+    if(isManual){
+      showToast('保存できませんでした：' + (lastSaveError || '原因不明') + '\n入力内容は端末に残しています。「保存」を押し直してください', 9000);
+    }
   }
   updateSaveStatus();
   if(pendingSave){
@@ -722,17 +870,15 @@ async function runSave(isManual){
   }
 }
 
-async function sendSaveWithRetry(attempts){
+async function saveOnceWithRetry(attempts){
   const waits = [0, 1500, 4000];
+  let last = 'fail';
   for(let i = 0; i < attempts; i++){
     if(waits[i]) await new Promise(r=> setTimeout(r, waits[i]));
-    try{
-      if(await sendSave()){ lastSaveError = ''; return true; }
-    } catch(e){
-      lastSaveError = describeSaveError(e); // 次の試行へ
-    }
+    last = await saveOnce();
+    if(last === 'ok') return 'ok';
   }
-  return false;
+  return last;
 }
 
 function updateSaveStatus(){
@@ -741,6 +887,7 @@ function updateSaveStatus(){
   if(saving){ el.textContent = '保存中…'; el.className = 'save-status saving'; }
   else if(dirty && !state.driverName){ el.textContent = '運転者名を選択'; el.className = 'save-status dirty'; }
   else if(dirty && lastSaveError){ el.textContent = '保存失敗'; el.className = 'save-status dirty'; }
+  else if(loadFailed && !dirty){ el.textContent = '未確認'; el.className = 'save-status warn'; }
   else if(dirty){ el.textContent = '未保存'; el.className = 'save-status dirty'; }
   else { el.textContent = '保存済み'; el.className = 'save-status saved'; }
 }
@@ -920,7 +1067,12 @@ function updateField(id, key, value){
   const t = state.trips.find(t=>t.id===id);
   t[key] = value;
   if(key === 'fare'){
-    t.fareManual = (value !== '');
+    t.fareManual = (String(value).trim() !== '');
+    if(!t.fareManual && maybeAutoFillFare(t)){
+      // 欄を空にしたら自動計算に戻す（時刻から再計算して欄にも反映）
+      const el = document.querySelector(`input[data-key="fare"][data-id="${id}"]`);
+      if(el) el.value = t.fare;
+    }
   }
   renderTotalsOnly();
   updateTripBreakdown(id);
@@ -1152,8 +1304,9 @@ function render(){
   const driverCustomValue = isStaffName(state.driverName) ? '' : state.driverName;
 
   app.innerHTML = `
+    ${loadFailed ? `<div class="load-warn">通信できませんでした。このまま保存すると、すでにある記録を上書きする恐れがあります。<br>電波の良い場所で日付を選び直してください。</div>` : ''}
     <div class="head">
-      <p class="head-title">介護タクシー運行日誌</p>
+      <p class="head-title">介護タクシー運行日誌<span class="ver">${APP_VERSION}</span></p>
       <input type="date" id="date-input" value="${state.date}">
       <div class="driver-row">
         <div class="driver-field">
